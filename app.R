@@ -1,77 +1,247 @@
 library(shiny)
 library(tidyverse)
 library(dplyr)
-#deaths <- read.csv("./deaths.csv")
+library(plotly)
+library(leaflet)
+library(scales)
+
+# Read data downloaded from 
+# https://www.kaggle.com/datasets/raskoshik/himalayan-expeditions
 expeditions <- read.csv("./expeditions.csv")
+peaks <- read.csv("./peaks.csv")
+#deaths <- read.csv("./deaths.csv")
 #summiters <- read.csv("./summiters.csv")
-#peaks <- read.csv("./peaks.csv")
 
+# Data pre-processed before
+# It takes ~8 minutes, so it was commented out, written to file
+#geocodes <- geocode(data_frame(peaks), 'peak_name')
+#write.csv(geocodes, "./geocodes.csv")
+geocodes <- read.csv("./geocodes.csv")
 
-summary(expeditions)
-
+# Cleaned and selected data
+geo_clean <- filter(
+  geocodes, 
+  long >= 80 & long <= 90 & lat >= 27 & lat <= 43)
+geo_clean <- filter(
+  geo_clean, peak_name != "Langju"
+)
+geo_clean <- geo_clean %>%
+  mutate(popupText=case_when(
+    climb_status == "Climbed" ~ 
+      paste(
+        "<strong>",
+        peak_name,
+        "</strong> <br>",
+        "Height: ", height_m, "<br>",
+        "Lat: ", lat, "<br>",
+        "Long: ", long, "<br>",
+        "First ascend: ", "<br>",
+        first_asc_date, " ",
+        first_asc_yr,
+        "."
+      ),
+    climb_status != "Climbed" ~
+      paste(
+        "<strong>",
+        peak_name, 
+        "</strong> <br>",
+        "Height: ", height_m, "<br>",
+        "Lat: ", lat, "<br>",
+        "Long: ", long, "<br>",
+        "Unclimbed."
+      )
+    )
+  )
 min_year <- min(expeditions$year)
 max_year <- max(expeditions$year)
-
 nationalities <- unique(sort(expeditions$nationality))
 nationalities_all <- append("All", nationalities)
 result_expedition <- unique(expeditions$exp_result)
 peaks <- unique(expeditions$peak_name)
 peaks_all <- append("All", peaks)
 
-# Define UI for application that draws a histogram
+
+# UI definition
 ui <- fluidPage(
+  
+# Application title
+  titlePanel("Himalayas expeditions"),
 
-    # Application title
-    titlePanel("Himalayas expeditions"),
-
-    # Sidebar with a slider input for number of bins 
+# Sidebar  
     sidebarLayout(
         sidebarPanel(
-            sliderInput("years_bottom",
-                        "From:",
+          selectInput('peak', 
+                      'Peak:', 
+                      peaks_all),
+          hr(),
+          h5("EXPEDITIONS"),
+            sliderInput("years",
+                        "Expeditions date range:",
                         min = min_year,
                         max = max_year,
-                        value = min_year),
-            sliderInput("years_up",
-                        "To:",
-                        min = min_year,
-                        max = max_year,
-                        value = max_year),
+                        value = c(min_year, max_year),
+                        sep = ""),
             selectInput('nationality', 
-                        'Nationality:', 
+                        'Nationality of summiters:', 
                         nationalities_all),
             selectInput('successful', 
-                        "Show expedition's success:", 
+                        "Expedition's success:", 
                         c("All",
                           "Only successful",
                           "Only unsuccessful")
                         ),
-            selectInput('peak', 
-                        'Peak:', 
-                        peaks_all),
-            
-            selectInput('color', 
-                        "Color by:", 
-                        c("None",
-                          "Success",
-                          "Peak")
+          hr(),
+          h5("PEAKS"),
+            selectInput('climbed', 
+                        "Climb status:", 
+                        c("All",
+                          "Climbed",
+                          "Unclimbed")
             ),
+          sliderInput("height",
+                      "Height of the peaks:",
+                      min = min(geo_clean$height_m),
+                      max = max(geo_clean$height_m),
+                      value = c(min(geo_clean$height_m), 
+                                max(geo_clean$height_m)),
+                      sep = ""),
+          sliderInput("first",
+                      "First ascend year of climbed peaks:",
+                      min = min_year,
+                      max = max(geo_clean$first_asc_yr),
+                      value = c(1930, 
+                                max(geo_clean$first_asc_yr)),
+                      sep = ""),
+            
+          
+            
         ),
 
-        # Show a plot of the generated distribution
+# Main panel
         mainPanel(
-          h1("Himalayas expeditions in years 1905-2020"),
-          textOutput("totalText"),
-          h2("Plot of the expeditions"),
-          plotOutput("expPlot")
+          tabsetPanel(type="tabs",
+                      tabPanel(title = "Expeditions plot", 
+                               h2("Plot of the expeditions"),
+                               plotlyOutput("expPlot"),
+                               br(),
+                               textOutput("totalText")
+                      ),
+                      tabPanel(title="Himalayas' peaks map",
+                               leafletOutput("himalayasMap"),
+                               br(),
+                               textOutput("peakText")
+                               )
+          )
+          
         )
     )
 )
 
-# Define server logic required to draw a histogram
+# Server logic
 server <- function(input, output) {
+
+# Expeditions text
+  output$totalText <- renderText({
+    
+    if (input$nationality != "All"){
+      expeditions <- expeditions[expeditions$nationality == input$nationality,]
+    }
+    if (input$peak != "All"){
+      expeditions <- expeditions[expeditions$peak_name == input$peak,]
+    }
+    if (input$successful == "Only successful"){
+      expeditions <- expeditions[expeditions$exp_result == "Success",]
+    }
+    if (input$successful == "Only unsuccessful"){
+      expeditions <- expeditions[expeditions$exp_result != "Success",]
+    }
+    
+    years_expeditions <- expeditions %>%
+      group_by(expeditionYear=expeditions$year) %>%
+      summarise(count=n())
+    
+    selected <- years_expeditions[
+      years_expeditions$expeditionYear >= input$years[1] &
+        years_expeditions$expeditionYear <= input$years[2] ,]
+    
+    paste("Total number of expeditions based on filters: ", 
+          sum(selected$count))
+    
+  })
   
-    output$expPlot <- renderPlot({
+  # Peaks text
+output$peakText <- renderText({
+  if (input$peak == "All"){
+    if (input$climbed != "All"){
+      geo_clean <- geo_clean[geo_clean$climb_status == input$climbed,]
+    }
+    
+    if (input$climbed == "Climbed"){
+      geo_clean <- geo_clean[
+        geo_clean$first_asc_yr >= input$first[1] &
+          geo_clean$first_asc_yr <= input$first[2],]
+      validate(
+        need(input$first[2] >= 1930 ,
+             "No data of ascends earlier than 1930.")
+      )
+    }
+    
+    geo_clean <- geo_clean[
+      geo_clean$height_m >= input$height[1] &
+        geo_clean$height_m <= input$height[2] ,]
+    
+    paste("Total peaks shown: ", length(geo_clean$peak_name))
+  } else {
+    "Total peaks selected: 1"
+  }
+})
+
+# Leaflet map of the peaks
+  output$himalayasMap <- renderLeaflet({
+    
+    if (input$climbed != "All"){
+      geo_clean <- geo_clean[geo_clean$climb_status == input$climbed,]
+    }
+    
+    if (input$climbed == "Climbed"){
+      geo_clean <- geo_clean[
+        geo_clean$first_asc_yr >= input$first[1] &
+          geo_clean$first_asc_yr <= input$first[2],]
+      validate(
+        need(input$first[2] >= 1930 ,
+             "No data of ascends earlier than 1930.")
+      )
+    }
+    
+    geo_clean <- geo_clean[
+      geo_clean$height_m >= input$height[1] &
+        geo_clean$height_m <= input$height[2] ,]
+    
+    
+    
+    
+    if (input$peak != "All"){
+      geo_clean <- filter(geo_clean, peak_name == input$peak)
+      validate(
+        need(length(geo_clean$peak_name) > 0, 
+        "Wrong selection or no data for the coordinates. Please search again.")
+      )
+      leaflet(data = geo_clean) %>% addTiles() %>%
+        addMarkers(geo_clean$long, geo_clean$lat, 
+                   popup = as.character(geo_clean$popupText), 
+                   label = as.character(geo_clean$peak_name))
+    } else {
+      leaflet(data = geo_clean) %>% addTiles() %>%
+        addMarkers(~long, ~lat, 
+                   popup = ~as.character(popupText), 
+                   label = ~as.character(peak_name))
+    }
+    
+  })
+  
+# Plot of expeditions
+    output$expPlot <- renderPlotly({
+      
       if (input$nationality != "All"){
         expeditions <- expeditions[expeditions$nationality == input$nationality,]
       }
@@ -85,45 +255,30 @@ server <- function(input, output) {
         expeditions <- expeditions[expeditions$exp_result != "Success",]
       }
       
-      
       years_expeditions <- expeditions %>%
-        group_by(expeditions$year) %>%
-        summarise(total_count=n())
+        group_by(expeditionYear=expeditions$year) %>%
+        summarise(count=n())
       
       selected <- years_expeditions[
-        years_expeditions$`expeditions$year` > input$years_bottom &
-          years_expeditions$`expeditions$year` < input$years_up ,]
+        years_expeditions$expeditionYear >= input$years[1] &
+          years_expeditions$expeditionYear <= input$years[2] ,]
+
+      plot <-
+        selected %>%
+        ggplot(aes(x=expeditionYear, y=count)) +
+        geom_point() +
+        theme_bw() +
+        scale_x_continuous(breaks= breaks_pretty()) +
+        scale_y_continuous(breaks= breaks_pretty()) +
+        labs(
+          x = "Year of the expedition",
+          y = "Total count of expeditions in the year",
+        )
       
-      selected %>%
-        ggplot(aes(x=`expeditions$year`, y=total_count)) + geom_point()
+      ggplotly(plot)
+      
     })
     
-    output$totalText <- renderText({
-      if (input$nationality != "All"){
-        expeditions <- expeditions[expeditions$nationality == input$nationality,]
-      }
-      if (input$peak != "All"){
-        expeditions <- expeditions[expeditions$peak_name == input$peak,]
-      }
-      if (input$successful == "Only successful"){
-        expeditions <- expeditions[expeditions$exp_result == "Success",]
-      }
-      if (input$successful == "Only unsuccessful"){
-        expeditions <- expeditions[expeditions$exp_result != "Success",]
-      }
-      
-      
-      years_expeditions <- expeditions %>%
-        group_by(expeditions$year) %>%
-        summarise(total_count=n())
-      
-      selected <- years_expeditions[
-        years_expeditions$`expeditions$year` > input$years_bottom &
-          years_expeditions$`expeditions$year` < input$years_up ,]
-      
-      paste("Total number of expeditions based on picked filters: ", 
-      sum(selected$total_count))
-    })
 }
 
 # Run the application 
