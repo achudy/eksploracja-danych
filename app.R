@@ -1,10 +1,10 @@
 library(shiny)
 library(tidyverse)
 library(dplyr)
-#deaths <- read.csv("/Users/achudy/Desktop/ed-projekt/deaths.csv")
+#deaths <- read.csv("./deaths.csv")
 expeditions <- read.csv("./expeditions.csv")
-#summiters <- read.csv("/Users/achudy/Desktop/ed-projekt/summiters.csv")
-#peaks <- read.csv("/Users/achudy/Desktop/ed-projekt/peaks.csv")
+#summiters <- read.csv("./summiters.csv")
+#peaks <- read.csv("./peaks.csv")
 
 
 summary(expeditions)
