@@ -4,6 +4,7 @@ library(dplyr)
 library(plotly)
 library(leaflet)
 library(scales)
+library(shinyjs)
 
 # Read data downloaded from 
 # https://www.kaggle.com/datasets/raskoshik/himalayan-expeditions
@@ -70,6 +71,7 @@ ui <- fluidPage(
 # Sidebar  
     sidebarLayout(
         sidebarPanel(
+          useShinyjs(),
           selectInput('peak', 
                       'Peak:', 
                       peaks_all),
@@ -94,9 +96,9 @@ ui <- fluidPage(
           h5("PEAKS"),
             selectInput('climbed', 
                         "Climb status:", 
-                        c("All",
-                          "Climbed",
-                          "Unclimbed")
+                        c("Climbed",
+                          "Unclimbed",
+                          "All")
             ),
           sliderInput("height",
                       "Height of the peaks:",
@@ -135,6 +137,78 @@ ui <- fluidPage(
           
         )
     )
+)
+
+ui2 <- fluidPage(
+  headerPanel("Himalayas expeditions"),
+  tabsetPanel(
+    tabPanel('Expeditions plot',
+             sidebarLayout(
+               sidebarPanel(
+                 useShinyjs(),
+                 selectInput('peak', 
+                             'Peak:', 
+                             peaks_all),
+                 sliderInput("years",
+                             "Expeditions date range:",
+                             min = min_year,
+                             max = max_year,
+                             value = c(min_year, max_year),
+                             sep = ""),
+                 selectInput('nationality', 
+                             'Nationality of summiters:', 
+                             nationalities_all),
+                 selectInput('successful', 
+                             "Expedition's success:", 
+                             c("All",
+                               "Only successful",
+                               "Only unsuccessful")
+                 )
+               ),
+               mainPanel(
+                 h2("Plot of the expeditions"),
+                 plotlyOutput("expPlot"),
+                 br(),
+                 textOutput("totalText")
+               )
+             )  
+    ),
+    tabPanel("Himalayas' peak map",
+             sidebarLayout(
+               sidebarPanel(
+                 useShinyjs(),
+                 selectInput('peak', 
+                             'Peak:', 
+                             peaks_all),
+                 selectInput('climbed', 
+                             "Climb status:", 
+                             c("Climbed",
+                               "Unclimbed",
+                               "All")
+                 ),
+                 sliderInput("height",
+                             "Height of the peaks:",
+                             min = min(geo_clean$height_m),
+                             max = max(geo_clean$height_m),
+                             value = c(min(geo_clean$height_m), 
+                                       max(geo_clean$height_m)),
+                             sep = ""),
+                 sliderInput("first",
+                             "First ascend year of climbed peaks:",
+                             min = min_year,
+                             max = max(geo_clean$first_asc_yr),
+                             value = c(1930, 
+                                       max(geo_clean$first_asc_yr)),
+                             sep = ""),
+               ),
+               mainPanel(
+                 leafletOutput("himalayasMap"),
+                 br(),
+                 textOutput("peakText")
+               )
+             )
+    )
+  )
 )
 
 # Server logic
@@ -198,12 +272,14 @@ output$peakText <- renderText({
 
 # Leaflet map of the peaks
   output$himalayasMap <- renderLeaflet({
+    shinyjs::hide(id = "first")
     
     if (input$climbed != "All"){
       geo_clean <- geo_clean[geo_clean$climb_status == input$climbed,]
     }
     
     if (input$climbed == "Climbed"){
+      shinyjs::show(id = "first")
       geo_clean <- geo_clean[
         geo_clean$first_asc_yr >= input$first[1] &
           geo_clean$first_asc_yr <= input$first[2],]
@@ -282,4 +358,4 @@ output$peakText <- renderText({
 }
 
 # Run the application 
-shinyApp(ui = ui, server = server)
+shinyApp(ui = ui2, server = server)
